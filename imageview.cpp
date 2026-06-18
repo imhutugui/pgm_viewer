@@ -119,10 +119,30 @@ bool ImageView::loadPGM(const QString &filename)
 
     file.close();
 
-    // Create QImage for display
-    m_originalImage = QImage(m_width, m_height, QImage::Format_Grayscale8);
+    // Create QImage for display - use Format_Indexed8 for binary (black/white only)
+    m_originalImage = QImage(m_width, m_height, QImage::Format_Indexed8);
+    
+    // Set up color table: index 0 = black, index 255 = white
+    QVector<QRgb> colorTable;
+    for (int i = 0; i < 256; ++i) {
+        if (i == 0) {
+            colorTable.append(qRgb(0, 0, 0));      // Black
+        } else if (i == 255) {
+            colorTable.append(qRgb(255, 255, 255)); // White
+        } else {
+            // For intermediate values, threshold to black or white
+            colorTable.append(i > 127 ? qRgb(255, 255, 255) : qRgb(0, 0, 0));
+        }
+    }
+    m_originalImage.setColorTable(colorTable);
+    
+    // Convert pixel data to binary (0 or 255 only)
+    int threshold = m_maxVal / 2;
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
+            unsigned char val = m_pixelData[y][x];
+            // Threshold to binary: <= threshold becomes 0 (black), > threshold becomes 255 (white)
+            m_pixelData[y][x] = (val <= threshold) ? 0 : 255;
             m_originalImage.setPixel(x, y, m_pixelData[y][x]);
         }
     }
@@ -239,8 +259,9 @@ void ImageView::erasePixel(int x, int y)
             int py = y + dy;
             if (px >= 0 && px < m_width && py >= 0 && py < m_height) {
                 if (dx*dx + dy*dy <= radius*radius) {
-                    m_pixelData[py][px] = 0;
-                    m_displayImage.setPixel(px, py, 0);
+                    // Erase to white (255) instead of black (0)
+                    m_pixelData[py][px] = 255;
+                    m_displayImage.setPixel(px, py, 255);
                 }
             }
         }

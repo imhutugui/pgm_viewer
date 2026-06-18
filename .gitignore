@@ -1,23 +1,44 @@
 ```
-# Qt/MOC generated files
-moc_*.cpp
-moc_*.h
-moc_*.o
-ui_*.h
-.qmake.stash
-
-# Object files
-*.o
-*.obj
-
-# Executables
-pgm_viewer
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
 # Build artifacts
-Makefile
-*.pro.user
+build/
+dist/
+*.so
+*.dylib
+*.dll
 
-# IDE files
-*.user
+# Qt/C++ build files
+*.pro.user
 *.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+*.moc.cpp
+*.qm
+*.ui
+*.pri
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
 ```
