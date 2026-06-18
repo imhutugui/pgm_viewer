@@ -45,6 +45,8 @@ private:
     QPoint m_offset;
     int m_brushSize;
     bool m_isDrawing;
+    QPoint m_lastPanPos;  // For pan operation
+    QPoint m_currentMousePos;  // For brush preview
 };
 
 #endif // IMAGEVIEW_H
