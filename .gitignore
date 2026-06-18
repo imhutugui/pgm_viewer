@@ -1,44 +1,22 @@
 ```
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Compiled and build artifacts
+*.o
+*.obj
+*.out
+pgm_viewer
 
-# Build artifacts
+# Qt/MOC generated files
+moc_*.cpp
+moc_*.h
+
+# Dependencies
 build/
-dist/
-*.so
-*.dylib
-*.dll
-
-# Qt/C++ build files
-*.pro.user
-*.pro.user.*
-*.qbs.user
-*.qbs.user.*
-*.moc
-*.moc.cpp
-*.qm
-*.ui
-*.pri
 
 # Logs and temp files
 *.log
 *.tmp
 
-# Environment
-.env
-.env.local
-*.env.*
-
 # Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
 ```

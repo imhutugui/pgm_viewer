@@ -17,6 +17,8 @@ ImageView::ImageView(QWidget *parent)
     , m_zoom(1.0)
     , m_brushSize(5)
     , m_isDrawing(false)
+    , m_lastPanPos()
+    , m_currentMousePos()
 {
     setMinimumSize(400, 300);
     setMouseTracking(true);
@@ -84,10 +86,11 @@ bool ImageView::loadPGM(const QString &filename)
     // Initialize pixel data
     m_pixelData.resize(m_height, std::vector<unsigned char>(m_width));
 
-    // Read pixel data
+    // Read pixel data - handle P5 binary format properly
     if (magic == "P5") {
-        // Binary format
-        file.seek(in.device()->pos());
+        // Binary format - read raw bytes after header
+        qint64 pos = in.device()->pos();
+        file.seek(pos);
         QByteArray data = file.readAll();
         int idx = 0;
         for (int y = 0; y < m_height && idx < data.size(); ++y) {
@@ -96,7 +99,7 @@ bool ImageView::loadPGM(const QString &filename)
             }
         }
     } else {
-        // ASCII format
+        // ASCII format (P2)
         int x = 0, y = 0;
         while (!in.atEnd() && y < m_height) {
             line = in.readLine().trimmed();
@@ -217,12 +220,26 @@ void ImageView::paintEvent(QPaintEvent *event)
     int scaledHeight = static_cast<int>(m_height * m_zoom);
     QRect imageRect(m_offset.x(), m_offset.y(), scaledWidth, scaledHeight);
 
-    // Draw image
+    // Draw image with nearest neighbor scaling for crisp binary pixels
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(imageRect, m_displayImage);
 
     // Draw border
     painter.setPen(QPen(Qt::white, 2));
     painter.drawRect(imageRect);
+
+    // Draw brush preview circle when mouse is over image
+    QPoint imgPos = screenToImage(m_currentMousePos);
+    if (imgPos.x() >= 0 && !m_isDrawing) {
+        painter.setPen(QPen(Qt::red, 1));
+        painter.setBrush(Qt::NoBrush);
+        int scaledRadius = static_cast<int>(m_brushSize * m_zoom / 2.0);
+        QPoint screenCenter(
+            m_offset.x() + static_cast<int>((imgPos.x() + 0.5) * m_zoom),
+            m_offset.y() + static_cast<int>((imgPos.y() + 0.5) * m_zoom)
+        );
+        painter.drawEllipse(screenCenter, scaledRadius, scaledRadius);
+    }
 
     // Draw info
     painter.setPen(Qt::lightGray);
@@ -270,7 +287,7 @@ void ImageView::erasePixel(int x, int y)
 
 void ImageView::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton) {
+    if (event->button() == Qt::LeftButton && !(event->modifiers() & Qt::ControlModifier)) {
         QPoint imgPos = screenToImage(event->pos());
         if (imgPos.x() >= 0) {
             m_isDrawing = true;
@@ -279,13 +296,17 @@ void ImageView::mousePressEvent(QMouseEvent *event)
         }
     } else if (event->button() == Qt::MiddleButton || 
                (event->button() == Qt::LeftButton && event->modifiers() & Qt::ControlModifier)) {
-        // Start pan mode
+        // Start pan mode - store initial position
+        m_lastPanPos = event->position().toPoint();
         m_isDrawing = false;
     }
 }
 
 void ImageView::mouseMoveEvent(QMouseEvent *event)
 {
+    // Always update current mouse position for brush preview
+    m_currentMousePos = event->position().toPoint();
+    
     if (m_isDrawing && event->buttons() & Qt::LeftButton) {
         QPoint imgPos = screenToImage(event->pos());
         if (imgPos.x() >= 0) {
@@ -294,16 +315,11 @@ void ImageView::mouseMoveEvent(QMouseEvent *event)
         }
     } else if (event->buttons() & Qt::MiddleButton ||
                (event->buttons() & Qt::LeftButton && event->modifiers() & Qt::ControlModifier)) {
-        // Pan - store last position for delta calculation
-        static QPoint lastPos = event->position().toPoint();
+        // Pan - use delta from last position
         QPoint currentPos = event->position().toPoint();
-        m_offset += currentPos - lastPos;
-        lastPos = currentPos;
+        m_offset += currentPos - m_lastPanPos;
+        m_lastPanPos = currentPos;
         update();
-    } else {
-        // Reset lastPos when not panning
-        static QPoint lastPos;
-        lastPos = event->position().toPoint();
     }
 }
 
