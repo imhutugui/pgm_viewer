@@ -19,4 +19,9 @@ build/
 # Editors
 .vscode/
 .idea/
+.agents/
+.claude/
+.codegraph/
+.codex/
+.qtcreator/
 ```
