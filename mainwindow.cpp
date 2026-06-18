@@ -22,9 +22,6 @@ MainWindow::MainWindow(QWidget *parent)
     createMenuBar();
     createToolBar();
     createStatusBar();
-    
-    // Load test image if exists
-    loadFile("test_image.pgm");
 }
 
 MainWindow::~MainWindow()

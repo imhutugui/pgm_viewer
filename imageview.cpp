@@ -7,6 +7,11 @@
 #include <QTextStream>
 #include <QBrush>
 #include <QPen>
+#include <QMessageBox>
+#include <QDebug>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <cmath>
 
 ImageView::ImageView(QWidget *parent)
@@ -35,84 +40,138 @@ bool ImageView::loadPGM(const QString &filename)
         return false;
     }
 
-    QTextStream in(&file);
-    QString magic;
-    in >> magic;
+    QByteArray allData = file.readAll();
+    file.close();
 
-    if (magic != "P2" && magic != "P5") {
-        file.close();
+    qInfo() << "File size:" << allData.size() << "filename:" << filename;
+
+    if (allData.isEmpty()) {
+        qInfo() << "ERROR: File is empty!";
         return false;
     }
 
-    // Skip comments and read dimensions
-    QString line;
-    while (in.device()->pos() < file.size()) {
-        line = in.readLine().trimmed();
-        if (!line.startsWith('#') && !line.isEmpty()) {
-            QStringList parts = line.split(QChar(' '), Qt::SkipEmptyParts);
-            if (parts.size() >= 2) {
-                m_width = parts[0].toInt();
-                m_height = parts[1].toInt();
-                break;
-            } else if (parts.size() == 1) {
-                m_width = parts[0].toInt();
-                // Read height from next non-comment line
-                while (in.device()->pos() < file.size()) {
-                    line = in.readLine().trimmed();
-                    if (!line.startsWith('#') && !line.isEmpty()) {
-                        m_height = line.toInt();
-                        break;
-                    }
-                }
-                break;
-            }
-        }
+    int pos = 0;
+    int len = allData.size();
+
+    // Show first 100 bytes for debugging
+    QByteArray preview = allData.left(qMin(100, len));
+    qInfo() << "File start (hex):" << preview.toHex(':').constData();
+
+    // Skip whitespace
+    while (pos < len && (allData[pos] == ' ' || allData[pos] == '\t' || allData[pos] == '\n' || allData[pos] == '\r')) pos++;
+
+    // Read magic number
+    QString magic;
+    while (pos < len && allData[pos] != ' ' && allData[pos] != '\t' && allData[pos] != '\n' && allData[pos] != '\r') {
+        magic += allData[pos++];
     }
 
-    // Read max value
-    while (in.device()->pos() < file.size()) {
-        line = in.readLine().trimmed();
-        if (!line.startsWith('#') && !line.isEmpty()) {
-            m_maxVal = line.toInt();
+    if (magic != "P2" && magic != "P5") {
+        return false;
+    }
+
+    // Read width (skip comments and whitespace)
+    while (pos < len) {
+        if (allData[pos] == '#') {
+            while (pos < len && allData[pos] != '\n') pos++;
+        } else if (allData[pos] == ' ' || allData[pos] == '\t' || allData[pos] == '\n' || allData[pos] == '\r') {
+            pos++;
+        } else {
             break;
         }
     }
+    QString wStr;
+    while (pos < len && allData[pos] != ' ' && allData[pos] != '\t' && allData[pos] != '\n' && allData[pos] != '\r') {
+        wStr += allData[pos++];
+    }
+    if (wStr.isEmpty()) return false;
+    m_width = wStr.toInt();
+
+    // Read height
+    while (pos < len) {
+        if (allData[pos] == '#') {
+            while (pos < len && allData[pos] != '\n') pos++;
+        } else if (allData[pos] == ' ' || allData[pos] == '\t' || allData[pos] == '\n' || allData[pos] == '\r') {
+            pos++;
+        } else {
+            break;
+        }
+    }
+    QString hStr;
+    while (pos < len && allData[pos] != ' ' && allData[pos] != '\t' && allData[pos] != '\n' && allData[pos] != '\r') {
+        hStr += allData[pos++];
+    }
+    if (hStr.isEmpty()) return false;
+    m_height = hStr.toInt();
+
+    // Read max value
+    while (pos < len) {
+        if (allData[pos] == '#') {
+            while (pos < len && allData[pos] != '\n') pos++;
+        } else if (allData[pos] == ' ' || allData[pos] == '\t' || allData[pos] == '\n' || allData[pos] == '\r') {
+            pos++;
+        } else {
+            break;
+        }
+    }
+    QString mStr;
+    while (pos < len && allData[pos] != ' ' && allData[pos] != '\t' && allData[pos] != '\n' && allData[pos] != '\r') {
+        mStr += allData[pos++];
+    }
+    if (mStr.isEmpty()) return false;
+    m_maxVal = mStr.toInt();
+
+    qInfo() << "Parsed header:" << m_width << "x" << m_height << "maxVal:" << m_maxVal << "dataOffset:" << pos;
 
     if (m_width <= 0 || m_height <= 0 || m_maxVal <= 0) {
-        file.close();
         return false;
     }
 
     // Initialize pixel data
     m_pixelData.resize(m_height, std::vector<unsigned char>(m_width));
 
-    // Read pixel data - handle P5 binary format properly
     if (magic == "P5") {
-        // Binary format - read raw bytes after header
-        qint64 pos = in.device()->pos();
-        file.seek(pos);
-        QByteArray data = file.readAll();
-        int idx = 0;
-        for (int y = 0; y < m_height && idx < data.size(); ++y) {
-            for (int x = 0; x < m_width && idx < data.size(); ++x) {
-                m_pixelData[y][x] = static_cast<unsigned char>(data[idx++]);
+        int expectedPixels = m_width * m_height;
+        int availableBytes = allData.size() - pos;
+
+        if (availableBytes < expectedPixels) {
+            return false;
+        }
+
+        const uchar *rawData = reinterpret_cast<const uchar*>(allData.constData() + pos);
+        for (int y = 0; y < m_height; ++y) {
+            for (int x = 0; x < m_width; ++x) {
+                m_pixelData[y][x] = rawData[y * m_width + x];
             }
         }
     } else {
-        // ASCII format (P2)
         int x = 0, y = 0;
-        while (!in.atEnd() && y < m_height) {
-            line = in.readLine().trimmed();
-            if (line.startsWith('#') || line.isEmpty()) continue;
-            
-            QStringList values = line.split(QChar(' '), Qt::SkipEmptyParts);
-            for (const QString &val : values) {
-                if (x >= m_width) {
-                    x = 0;
-                    ++y;
+        while (y < m_height) {
+            // Skip comments and whitespace
+            while (pos < len) {
+                if (allData[pos] == '#') {
+                    while (pos < len && allData[pos] != '\n') pos++;
+                } else if (allData[pos] == ' ' || allData[pos] == '\t' || allData[pos] == '\n' || allData[pos] == '\r') {
+                    pos++;
+                } else {
+                    break;
                 }
-                if (y < m_height && x < m_width) {
-                    int v = val.toInt();
+            }
+            QString valStr;
+            while (pos < len && allData[pos] != ' ' && allData[pos] != '\t' && allData[pos] != '\n' && allData[pos] != '\r') {
+                valStr += allData[pos++];
+            }
+            if (valStr.isEmpty()) break;
+
+            if (x < m_width) {
+                int v = valStr.toInt();
+                m_pixelData[y][x] = static_cast<unsigned char>(qBound(0, v, 255));
+                ++x;
+            } else {
+                ++y;
+                x = 0;
+                if (y < m_height) {
+                    int v = valStr.toInt();
                     m_pixelData[y][x] = static_cast<unsigned char>(qBound(0, v, 255));
                     ++x;
                 }
@@ -122,31 +181,21 @@ bool ImageView::loadPGM(const QString &filename)
 
     file.close();
 
-    // Create QImage for display - use Format_Indexed8 for binary (black/white only)
+    // Create QImage for display
     m_originalImage = QImage(m_width, m_height, QImage::Format_Indexed8);
     
-    // Set up color table: index 0 = black, index 255 = white
+    // Set up grayscale color table
     QVector<QRgb> colorTable;
     for (int i = 0; i < 256; ++i) {
-        if (i == 0) {
-            colorTable.append(qRgb(0, 0, 0));      // Black
-        } else if (i == 255) {
-            colorTable.append(qRgb(255, 255, 255)); // White
-        } else {
-            // For intermediate values, threshold to black or white
-            colorTable.append(i > 127 ? qRgb(255, 255, 255) : qRgb(0, 0, 0));
-        }
+        colorTable.append(qRgb(i, i, i));
     }
     m_originalImage.setColorTable(colorTable);
     
-    // Convert pixel data to binary (0 or 255 only)
-    int threshold = m_maxVal / 2;
+    // Copy pixel data directly (no thresholding)
     for (int y = 0; y < m_height; ++y) {
         for (int x = 0; x < m_width; ++x) {
             unsigned char val = m_pixelData[y][x];
-            // Threshold to binary: <= threshold becomes 0 (black), > threshold becomes 255 (white)
-            m_pixelData[y][x] = (val <= threshold) ? 0 : 255;
-            m_originalImage.setPixel(x, y, m_pixelData[y][x]);
+            m_originalImage.setPixel(x, y, val);
         }
     }
 
@@ -168,18 +217,11 @@ void ImageView::savePGM(const QString &filename)
         return;
     }
 
-    QTextStream out(&file);
-    out << "P5\n";
-    out << m_width << " " << m_height << "\n";
-    out << m_maxVal << "\n";
-
-    QByteArray data;
+    QByteArray header = "P5\n" + QByteArray::number(m_width) + " " + QByteArray::number(m_height) + "\n" + QByteArray::number(m_maxVal) + "\n";
+    file.write(header);
     for (int y = 0; y < m_height; ++y) {
-        for (int x = 0; x < m_width; ++x) {
-            data.append(static_cast<char>(m_pixelData[y][x]));
-        }
+        file.write(reinterpret_cast<const char*>(m_pixelData[y].data()), m_width);
     }
-    file.write(data);
     file.close();
 }
 
@@ -230,7 +272,7 @@ void ImageView::paintEvent(QPaintEvent *event)
 
     // Draw brush preview circle when mouse is over image
     QPoint imgPos = screenToImage(m_currentMousePos);
-    if (imgPos.x() >= 0 && !m_isDrawing) {
+    if (imgPos.x() >= 0) {
         painter.setPen(QPen(Qt::red, 1));
         painter.setBrush(Qt::NoBrush);
         int scaledRadius = static_cast<int>(m_brushSize * m_zoom / 2.0);
@@ -354,4 +396,24 @@ void ImageView::wheelEvent(QWheelEvent *event)
     }
     
     update();
+}
+
+void ImageView::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+    }
+}
+
+void ImageView::dropEvent(QDropEvent *event)
+{
+    if (event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty()) {
+            QString filename = urls.first().toLocalFile();
+            if (!filename.isEmpty()) {
+                loadPGM(filename);
+            }
+        }
+    }
 }
