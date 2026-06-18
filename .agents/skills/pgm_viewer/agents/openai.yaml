@@ -1,0 +1,6 @@
+interface:
+  display_name: "Pgm Viewer"
+  short_description: "Repo-specific patterns and workflows for pgm_viewer"
+  default_prompt: "Use the pgm_viewer repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
